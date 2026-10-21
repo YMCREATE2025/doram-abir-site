@@ -62,23 +62,25 @@
 </head>
 <body>
 
+<a class="skip-link" href="#main-content">דלג לתוכן העיקרי</a>
+
 <header class="site-header is-scrolled">
   <div class="container">
-    <div class="header-actions" style="order:3;">
-      <a class="btn btn-primary" href="https://wa.me/972503322700" target="_blank" rel="noopener">לתיאום שיחת ייעוץ</a>
-    </div>
-    <nav class="main-nav" style="order:2;">
-      <a href="index.html#about">קצת עליי</a>
-      <a href="index.html#contact">יצירת קשר</a>
-    </nav>
-    <a class="brand" href="index.html" style="order:1;">
+    <a class="brand" href="index.html">
       <img class="brand-mark" src="assets/img/logo-full-80.png" alt="דורעם אביר - לוגו" width="40" height="40">
       <span class="brand-name">דורעם אביר<span>נדל"ן בבוקרשט</span></span>
     </a>
+    <nav class="main-nav">
+      <a href="index.html#about">קצת עליי</a>
+      <a href="index.html#contact">יצירת קשר</a>
+    </nav>
+    <div class="header-actions">
+      <a class="btn btn-primary" href="https://wa.me/972503322700" target="_blank" rel="noopener">לתיאום שיחת ייעוץ</a>
+    </div>
   </div>
 </header>
 
-<main class="container simple-page faq-page">
+<main class="container simple-page faq-page" id="main-content" tabindex="-1">
   <h1>שאלות ותשובות: השקעות נדל"ן בבוקרשט ורומניה</h1>
   <p class="faq-intro">
     דורעם אביר (Doram Abir) הוא יועץ נדל"ן ומלווה אישי למשקיעים ישראלים בבוקרשט (Bucharest Property Advisor / Romania Real Estate Consultant), המתמחה בליווי אישי ומלא של משקיעים ישראלים בכל שלבי ההשקעה בנדל"ן ברומניה: מבחירת הפרויקט והיזם, דרך תהליך הרכישה מול עורך דין ונוטריון, ועד לריהוט, השכרה וניהול הנכס. בעמוד זה ריכזנו את השאלות הנפוצות ביותר ששואלים משקיעים ישראלים על השקעות נדל"ן בבוקרשט וברומניה בכלל.
@@ -276,6 +278,8 @@
       <span>© <span id="current-year">2026</span> דורעם אביר. כל הזכויות שמורות.</span>
       <a href="mailto:bucuresti.doram@gmail.com">bucuresti.doram@gmail.com</a>
       <a href="privacy.html">הצהרת נגישות ומדיניות פרטיות</a>
+      <a href="terms.html">תקנון ומדיניות ביטולים</a>
+      <button type="button" class="cookie-settings-link">הגדרות עוגיות</button>
     </div>
   </div>
 </footer>
@@ -314,7 +318,22 @@
   </div>
 </div>
 
+<div id="cookie-banner" class="cookie-banner" role="dialog" aria-label="הגדרות עוגיות" hidden>
+  <p>אנו משתמשים בעוגיות חיוניות לתפעול האתר, ובעוגיות ניתוח וסטטיסטיקה לצורך שיפור השירות — רק בהסכמתכם. פרטים נוספים ב<a href="privacy.html">מדיניות הפרטיות</a>.</p>
+  <div class="cookie-banner-actions">
+    <button type="button" class="btn" id="cookie-accept-all">אישור הכל</button>
+    <button type="button" class="btn secondary" id="cookie-essential-only">רק חיוני</button>
+    <button type="button" class="cookie-customize-link" id="cookie-customize">התאמת העדפות</button>
+  </div>
+  <div class="cookie-prefs" id="cookie-prefs" hidden>
+    <label class="cookie-pref-row"><input type="checkbox" checked disabled> עוגיות חיוניות (תמיד פעילות, נדרשות לתפעול האתר)</label>
+    <label class="cookie-pref-row"><input type="checkbox" id="cookie-pref-analytics"> עוגיות ניתוח וסטטיסטיקה</label>
+    <button type="button" class="btn" id="cookie-save-prefs">שמירת העדפות</button>
+  </div>
+</div>
+
 <script src="js/analytics.js"></script>
+<script src="js/consent.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

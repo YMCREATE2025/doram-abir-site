@@ -164,6 +164,18 @@
   .empty-msg { color: var(--text-muted); font-size: 13px; padding: 20px 0; text-align: center; }
 
   select#range-select { width: auto; display: inline-block; }
+
+  .insight-list { display: flex; flex-direction: column; gap: 10px; }
+  .insight-item { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--text-soft); line-height: 1.5; }
+  .insight-dot { flex: 0 0 9px; width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; }
+  .insight-dot.green { background: var(--ok); }
+  .insight-dot.orange { background: #d1a45a; }
+  .insight-dot.gray { background: var(--text-muted); }
+
+  .mini-table-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 640px) { .mini-table-grid { grid-template-columns: 1fr; } }
+  .mini-table-title { font-size: 12px; color: var(--text-muted); margin: 14px 0 8px; }
+  .mini-table-title:first-child { margin-top: 0; }
 </style>
 </head>
 <body>
@@ -198,16 +210,39 @@
 
   <div class="panel is-active" id="panel-overview">
     <div class="card">
-      <h2>מבט על</h2>
       <div class="stat-grid" id="overview-stats"></div>
     </div>
     <div class="card">
-      <h2>מקורות תנועה</h2>
-      <div id="overview-sources"></div>
+      <h2>תובנות</h2>
+      <div class="insight-list" id="overview-insights"></div>
     </div>
     <div class="card">
-      <h2>מגמה יומית (צפיות בעמוד)</h2>
+      <h2>מגמה (צפיות בעמוד וכניסות)</h2>
       <div id="overview-trend"></div>
+    </div>
+    <div class="card">
+      <div class="mini-table-grid">
+        <div>
+          <h2>העמודים הנצפים ביותר</h2>
+          <div id="overview-pages"></div>
+        </div>
+        <div>
+          <h2>מקורות תנועה</h2>
+          <div id="overview-sources"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="mini-table-grid">
+        <div>
+          <h2>מיקום גיאוגרפי (מדינה)</h2>
+          <div id="overview-geo"></div>
+        </div>
+        <div>
+          <h2>מכשיר ודפדפן</h2>
+          <div id="overview-device"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -225,7 +260,7 @@
       <a class="btn secondary" style="display:inline-block;width:auto;padding:9px 18px;margin-bottom:14px;" href="/api/admin/export?type=leads" target="_blank">ייצוא ל-CSV</a>
       <div style="overflow-x:auto;">
         <table id="leads-table">
-          <thead><tr><th>תאריך</th><th>שם</th><th>טלפון</th><th>אימייל</th><th>מקור</th><th>קמפיין</th><th>עמוד</th><th>סטטוס</th></tr></thead>
+          <thead><tr><th>תאריך</th><th>שם</th><th>טלפון</th><th>אימייל</th><th>מקור</th><th>קמפיין</th><th>עמוד</th><th>דיוור</th><th>סטטוס</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -345,12 +380,12 @@
 
   /* ---------- range selector ---------- */
   var rangeSelect = document.getElementById('range-select');
-  [['7', '7 ימים אחרונים'], ['30', '30 ימים אחרונים'], ['90', '90 ימים אחרונים']].forEach(function (opt) {
+  [['1', 'יומי'], ['7', '7 ימים'], ['30', '30 יום'], ['90', '90 יום'], ['182', 'חצי שנה'], ['365', 'שנה']].forEach(function (opt) {
     var o = document.createElement('option');
     o.value = opt[0]; o.textContent = opt[1];
     rangeSelect.appendChild(o);
   });
-  rangeSelect.value = '7';
+  rangeSelect.value = '30';
   rangeSelect.addEventListener('change', function () { statsCache = null; loadOverview(); refreshCurrentDataTab(); });
 
   function refreshCurrentDataTab() {
@@ -371,33 +406,57 @@
     });
   }
 
+  function barList(entries, labelFn, emptyMsg) {
+    if (!entries.length) return '<div class="empty-msg">' + emptyMsg + '</div>';
+    var max = Math.max.apply(null, entries.map(function (e) { return e[1]; }).concat([1]));
+    return entries.map(function (e) {
+      var pct = Math.round((e[1] / max) * 100);
+      return '<div class="bar-row"><span class="bar-label">' + (labelFn ? labelFn(e[0]) : e[0]) + '</span><span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span><span class="bar-count">' + e[1] + '</span></div>';
+    }).join('');
+  }
+
   function loadOverview() {
     getStats().then(function (s) {
       if (!s || !s.ok) return;
       var t = s.totals;
+      var at = s.allTime || {};
       var boxes = [
-        ['צפיות בעמוד', t.pageviews],
-        ['מבקרים ייחודיים', t.visitors],
-        ['מבקרים חדשים', t.newVisitors],
-        ['לחיצות WhatsApp', t.whatsapp],
-        ['לחיצות טלפון', t.phone],
-        ['טפסים שנשלחו', t.forms],
-        ['יחס המרה', t.conversionRate + '%']
+        ['ממוצע כניסות ליום', t.avgPerDay],
+        ['מבקרים ייחודיים בטווח שנבחר', t.visitors],
+        ['כניסות בטווח שנבחר', t.pageviews],
+        ['סה"כ מבקרים ייחודיים (מאז ההקמה)', at.visitors],
+        ['סה"כ כניסות (מאז ההקמה)', at.pageviews]
       ];
       document.getElementById('overview-stats').innerHTML = boxes.map(function (b) {
         return '<div class="stat-box"><div class="num">' + b[1] + '</div><div class="label">' + b[0] + '</div></div>';
       }).join('');
 
-      var sourcesEntries = Object.entries(s.sources || {}).sort(function (a, b) { return b[1] - a[1]; });
-      var maxSrc = Math.max.apply(null, sourcesEntries.map(function (e) { return e[1]; }).concat([1]));
+      var insights = s.insights || [];
+      document.getElementById('overview-insights').innerHTML = insights.length ? insights.map(function (i) {
+        return '<div class="insight-item"><span class="insight-dot ' + i.level + '"></span><span>' + escapeHtml(i.text) + '</span></div>';
+      }).join('') : '<div class="empty-msg">אין עדיין מספיק נתונים לתובנות.</div>';
+
       var srcLabels = { direct: 'ישירה', organic: 'חיפוש אורגני', social: 'רשתות חברתיות', referral: 'הפניה מאתר אחר', internal: 'פנימי' };
-      document.getElementById('overview-sources').innerHTML = sourcesEntries.length ? sourcesEntries.map(function (e) {
-        var pct = Math.round((e[1] / maxSrc) * 100);
-        return '<div class="bar-row"><span class="bar-label">' + (srcLabels[e[0]] || e[0]) + '</span><span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span><span class="bar-count">' + e[1] + '</span></div>';
-      }).join('') : '<div class="empty-msg">אין עדיין נתונים בטווח שנבחר.</div>';
+      var sourcesEntries = Object.entries(s.sources || {}).sort(function (a, b) { return b[1] - a[1]; });
+      document.getElementById('overview-sources').innerHTML = barList(sourcesEntries, function (k) { return srcLabels[k] || k; }, 'אין עדיין נתונים בטווח שנבחר.');
+
+      var pagesEntries = Object.entries(s.topPages || {}).sort(function (a, b) { return b[1] - a[1]; });
+      document.getElementById('overview-pages').innerHTML = barList(pagesEntries, null, 'אין עדיין נתונים בטווח שנבחר.');
+
+      var geoEntries = Object.entries(s.geo || {}).sort(function (a, b) { return b[1] - a[1]; });
+      document.getElementById('overview-geo').innerHTML = barList(geoEntries, null, 'אין עדיין נתונים בטווח שנבחר.');
+
+      var deviceLabels = { desktop: 'מחשב', mobile: 'נייד', tablet: 'טאבלט' };
+      var deviceEntries = Object.entries(s.deviceCounts || {}).sort(function (a, b) { return b[1] - a[1]; });
+      var browserEntries = Object.entries(s.browserCounts || {}).sort(function (a, b) { return b[1] - a[1]; });
+      var deviceHtml = '<div class="mini-table-title">מכשיר</div>' + barList(deviceEntries, function (k) { return deviceLabels[k] || k; }, 'אין עדיין נתונים.');
+      deviceHtml += '<div class="mini-table-title">דפדפן</div>' + barList(browserEntries, null, 'אין עדיין נתונים.');
+      document.getElementById('overview-device').innerHTML = deviceHtml;
 
       document.getElementById('overview-trend').innerHTML = (s.trend || []).map(function (d) {
-        return '<div class="bar-row"><span class="bar-label">' + d.date + '</span><span class="bar-track"><span class="bar-fill" style="width:' + Math.min(100, d.pageviews * 4) + '%"></span></span><span class="bar-count">' + d.pageviews + '</span></div>';
+        var maxPv = Math.max.apply(null, (s.trend || []).map(function (x) { return x.pageviews; }).concat([1]));
+        var pct = Math.min(100, Math.round((d.pageviews / maxPv) * 100));
+        return '<div class="bar-row"><span class="bar-label">' + d.date + '</span><span class="bar-track"><span class="bar-fill" style="width:' + pct + '%"></span></span><span class="bar-count">' + d.pageviews + '</span></div>';
       }).join('');
     });
   }
@@ -472,6 +531,7 @@
           '<td>' + escapeHtml(src || '—') + '</td>' +
           '<td>' + escapeHtml(campaign || '—') + '</td>' +
           '<td>' + escapeHtml(l.path || '') + '</td>' +
+          '<td>' + (l.marketingConsent ? 'כן' : 'לא') + '</td>' +
           '<td><select class="status-select lead-status">' + options + '</select></td>' +
           '</tr>';
       }).join('');
@@ -659,8 +719,9 @@
   }
 
   /* ---------- init ---------- */
-  /* password gate removed at the site owner's request -- straight to dashboard */
-  showDashboard();
+  api('/api/admin/check').then(function (res) {
+    if (res.ok && res.data.ok) showDashboard(); else showLogin('');
+  }).catch(function () { showLogin(''); });
 })();
 </script>
 </body>

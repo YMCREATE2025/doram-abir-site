@@ -2,6 +2,7 @@
   'use strict';
 
   var ENDPOINT = '/api/track';
+  var CONSENT_KEY = 'da_cookie_consent';
 
   function uuid() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -12,25 +13,39 @@
     });
   }
 
+  /* ---------- consent ---------- */
+  function getConsent() {
+    try { return JSON.parse(localStorage.getItem(CONSENT_KEY) || 'null'); } catch (e) { return null; }
+  }
+  function hasAnalyticsConsent() {
+    var c = getConsent();
+    return !!(c && c.analytics === true);
+  }
+  window.daHasAnalyticsConsent = hasAnalyticsConsent;
+  window.daGetConsent = getConsent;
+
+  /* ---------- visitor / session ids (only created once analytics consent exists) ---------- */
   var isNewVisitor = false;
   var visitorId = 'na';
-  try {
-    visitorId = localStorage.getItem('da_vid');
-    if (!visitorId) {
-      visitorId = uuid();
-      localStorage.setItem('da_vid', visitorId);
-      isNewVisitor = true;
-    }
-  } catch (e) { /* private mode / storage blocked */ }
-
   var sessionId = 'na';
-  try {
-    sessionId = sessionStorage.getItem('da_sid');
-    if (!sessionId) {
-      sessionId = uuid();
-      sessionStorage.setItem('da_sid', sessionId);
-    }
-  } catch (e) { /* ignore */ }
+  function ensureIds() {
+    if (visitorId !== 'na') return;
+    try {
+      visitorId = localStorage.getItem('da_vid');
+      if (!visitorId) {
+        visitorId = uuid();
+        localStorage.setItem('da_vid', visitorId);
+        isNewVisitor = true;
+      }
+    } catch (e) { /* private mode / storage blocked */ }
+    try {
+      sessionId = sessionStorage.getItem('da_sid');
+      if (!sessionId) {
+        sessionId = uuid();
+        sessionStorage.setItem('da_sid', sessionId);
+      }
+    } catch (e) { /* ignore */ }
+  }
 
   function qs(name) {
     var m = new RegExp('[?&]' + name + '=([^&]*)').exec(window.location.search);
@@ -48,9 +63,9 @@
     return 'referral';
   }
 
-  function getAttribution() {
+  function currentTouch() {
     var ref = document.referrer || '';
-    var current = {
+    return {
       source: qs('utm_source') || classifySource(ref),
       medium: qs('utm_medium') || (qs('utm_source') ? 'campaign' : ref ? 'referral' : 'none'),
       campaign: qs('utm_campaign') || '',
@@ -59,6 +74,15 @@
       referrer: ref,
       landingPage: window.location.pathname
     };
+  }
+
+  /* persist=true keeps a "first touch" record across the visit (only once analytics
+     consent has been granted); persist=false just computes a one-off snapshot,
+     used for the lead event which is sent regardless of analytics consent since it
+     documents the user's own explicit request for a callback. */
+  function computeAttribution(persist) {
+    var current = currentTouch();
+    if (!persist) return { firstTouch: current, currentTouch: current };
     var stored = null;
     try { stored = JSON.parse(localStorage.getItem('da_attribution') || 'null'); } catch (e) { /* ignore */ }
     if (!stored) {
@@ -68,9 +92,11 @@
     return { firstTouch: stored, currentTouch: current };
   }
 
-  var attribution = getAttribution();
-
   function send(type, payload) {
+    var isLead = type === 'lead';
+    if (!isLead && !hasAnalyticsConsent()) return; // behavioral analytics require consent
+    if (isLead) ensureIds();
+    var attribution = computeAttribution(hasAnalyticsConsent());
     var body = Object.assign(
       {
         type: type,
@@ -94,43 +120,36 @@
   }
   window.daTrack = send;
 
-  send('pageview', {});
+  /* ---------- behavioral tracking (gated behind analytics consent) ---------- */
+  function onDocumentClick(e) {
+    var el = e.target && e.target.closest ? e.target.closest('a, button') : null;
+    if (el) {
+      var href = el.getAttribute('href') || '';
+      var label = (el.textContent || '').trim().slice(0, 60);
+      var section = el.closest('section[id]');
+      var sectionId = section ? section.id : '';
 
-  /* ---------- click tracking ---------- */
-  document.addEventListener(
-    'click',
-    function (e) {
-      var el = e.target && e.target.closest ? e.target.closest('a, button') : null;
-      if (el) {
-        var href = el.getAttribute('href') || '';
-        var label = (el.textContent || '').trim().slice(0, 60);
-        var section = el.closest('section[id]');
-        var sectionId = section ? section.id : '';
-
-        if (/^https:\/\/wa\.me\//.test(href)) {
-          send('whatsapp_click', { label: label, section: sectionId, href: href });
-        } else if (/^tel:/.test(href)) {
-          send('phone_click', { label: label, section: sectionId, href: href });
-        } else if (el.classList.contains('reel-card')) {
-          send('reel_click', { label: label, href: href });
-        } else if (/^https:\/\/(www\.)?instagram\.com/.test(href) && !el.classList.contains('reel-card')) {
-          send('instagram_click', { label: label, section: sectionId, href: href });
-        } else if (el.classList.contains('btn') || el.tagName === 'BUTTON') {
-          send('button_click', { label: label, section: sectionId, href: href });
-        }
+      if (/^https:\/\/wa\.me\//.test(href)) {
+        send('whatsapp_click', { label: label, section: sectionId, href: href });
+      } else if (/^tel:/.test(href)) {
+        send('phone_click', { label: label, section: sectionId, href: href });
+      } else if (el.classList.contains('reel-card')) {
+        send('reel_click', { label: label, href: href });
+      } else if (/^https:\/\/(www\.)?instagram\.com/.test(href) && !el.classList.contains('reel-card')) {
+        send('instagram_click', { label: label, section: sectionId, href: href });
+      } else if (el.classList.contains('btn') || el.tagName === 'BUTTON') {
+        send('button_click', { label: label, section: sectionId, href: href });
       }
+    }
 
-      try {
-        var docH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-        var xPct = Math.round((e.pageX / window.innerWidth) * 1000) / 10;
-        var yPct = docH > 0 ? Math.round((e.pageY / docH) * 1000) / 10 : 0;
-        send('click_point', { xPct: xPct, yPct: yPct, tag: e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '' });
-      } catch (e) { /* ignore */ }
-    },
-    true
-  );
+    try {
+      var docH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+      var xPct = Math.round((e.pageX / window.innerWidth) * 1000) / 10;
+      var yPct = docH > 0 ? Math.round((e.pageY / docH) * 1000) / 10 : 0;
+      send('click_point', { xPct: xPct, yPct: yPct, tag: e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '' });
+    } catch (e) { /* ignore */ }
+  }
 
-  /* ---------- scroll depth ---------- */
   var firedDepths = {};
   var ticking = false;
   function onScroll() {
@@ -150,5 +169,18 @@
       });
     });
   }
-  window.addEventListener('scroll', onScroll, { passive: true });
+
+  function startAnalytics() {
+    if (window.__daStarted) return;
+    if (!hasAnalyticsConsent()) return;
+    window.__daStarted = true;
+    ensureIds();
+    send('pageview', {});
+    document.addEventListener('click', onDocumentClick, true);
+    window.addEventListener('scroll', onScroll, { passive: true });
+  }
+  window.daStartAnalytics = startAnalytics;
+
+  // if consent was already granted in a previous visit, start immediately
+  if (hasAnalyticsConsent()) startAnalytics();
 })();

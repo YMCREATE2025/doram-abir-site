@@ -166,13 +166,15 @@
         return;
       }
 
+      var marketingEl = form.querySelector('[name="marketing"]');
       var data = {
         name: form.querySelector('[name="name"]').value.trim(),
         phone: form.querySelector('[name="phone"]').value.trim(),
         email: form.querySelector('[name="email"]').value.trim(),
         city: (form.querySelector('[name="city"]') || {}).value || '',
         budget: (form.querySelector('[name="budget"]') || {}).value || '',
-        message: (form.querySelector('[name="message"]') || {}).value || ''
+        message: (form.querySelector('[name="message"]') || {}).value || '',
+        marketingConsent: !!(marketingEl && marketingEl.checked)
       };
 
       var lines = [
@@ -195,6 +197,7 @@
           city: data.city,
           budget: data.budget,
           message: data.message,
+          marketingConsent: data.marketingConsent,
           formId: form.id || ''
         });
       }
@@ -324,3 +327,19 @@
     applyState();
   })();
 })();
+
+
+/* Google Maps: load only after explicit click (privacy) */
+document.querySelectorAll('.map-consent').forEach(function (box) {
+  var btn = box.querySelector('.map-load-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var f = document.createElement('iframe');
+    f.src = box.getAttribute('data-map-src');
+    f.title = box.getAttribute('data-map-title') || 'מפה';
+    f.loading = 'lazy';
+    f.referrerPolicy = 'no-referrer-when-downgrade';
+    box.textContent = '';
+    box.appendChild(f);
+  });
+});

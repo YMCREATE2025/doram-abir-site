@@ -7,6 +7,15 @@ function deviceType(ua: string): string {
   return "desktop";
 }
 
+function browserName(ua: string): string {
+  if (/edg\//i.test(ua)) return "Edge";
+  if (/opr\/|opera/i.test(ua)) return "Opera";
+  if (/chrome|crios/i.test(ua)) return "Chrome";
+  if (/fxios|firefox/i.test(ua)) return "Firefox";
+  if (/safari/i.test(ua)) return "Safari";
+  return "אחר";
+}
+
 function str(v: unknown, max: number): string | undefined {
   if (typeof v !== "string") return undefined;
   return v.slice(0, max);
@@ -51,7 +60,9 @@ export default async (req: Request, context: Context) => {
     xPct: num(body.xPct),
     yPct: num(body.yPct),
     tag: str(body.tag, 20),
-    device: deviceType(ua)
+    device: deviceType(ua),
+    browser: browserName(ua),
+    country: (context.geo && context.geo.country && (context.geo.country.code || context.geo.country.name)) || "לא ידוע"
   };
 
   const events = getStore("analytics-events");
@@ -70,6 +81,7 @@ export default async (req: Request, context: Context) => {
       budget: str(body.budget, 80) || "",
       message: str(body.message, 500) || "",
       formId: str(body.formId, 60) || "",
+      marketingConsent: !!body.marketingConsent,
       path: record.path,
       attribution: record.attribution,
       status: "new"

@@ -1,5 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
+import { isAuthed, destroySession } from "../lib/auth.mts";
 
 const DEFAULT_CONTENT: Record<string, string> = {
   "hero_title_line1": "דירה להשקעה בבוקרשט",
@@ -35,7 +36,7 @@ const DEFAULT_CONTENT: Record<string, string> = {
   "who_for_heading": "למי הליווי שלי מתאים?",
   "who_for_photo_img": "assets/img/doram-park.png",
   "testimonial_1_quote": "לאחר מספר פגישות פגשנו את דורעם, והחיבור היה מיידי. הוא לא קובע פגישות אחרי השעה 13:00 בגלל הילדים שלו – לא בדיוק מה שמצפים מאיש מכירות, וזו הנקודה שתפסה אותנו. במעבר מדוקדק על הרצונות שלנו והתכניות לעתיד, בנינו יחד תכנית עבודה למיצוי הטוב ביותר של ההשקעה. לאחר בחירת כיוון כבר נפגשנו בבוקרשט: פתחנו חשבון בנק, סיירנו בכמה פרויקטים, והכל התנהל בפשטות בזכות ההכנה המוקדמת והליווי שלו ושל הצוות. כבר במהלך המשא ומתן, דורעם חסך לנו יותר מהעמלה ששילמנו על שירותיו. בהמשך, נסיעה נוספת שתוכננה התבטלה עקב גל ביטולי טיסות, ודורעם היה איתנו יומיים ברצף מול היזם ועורכי הדין בטלפון כדי להסדיר את העניין מרחוק.",
-  "testimonial_1_name": "ניתן לביא",
+  "testimonial_1_name": "ניצן לביא",
   "testimonial_2_quote": "דורעם הוא אחד יחיד ומיוחד. תמיד מסביר פנים, אמין ומקצועי. יודע להיות חבר אמיתי. זכינו בו.",
   "testimonial_2_name": "אהובה היט",
   "testimonial_3_quote": "מה שקנה אותי אצל דורעם זה השירות המקיף – גם מקצועיות וגם ליווי אישי. לא חיפשתי להתעסק עם שוכרים או שלט רחוק, ודורעם דאג להכל: מאיתור הנכס ועד הניהול השוטף. זה פשוט תענוג לדעת שיש מישהו שדואג שהנכס יהיה מושכר ומטופל, בזמן שאני בארץ בלי כאבי ראש. למי שמחפש השקעה פסיבית באמת – הוא הכתובת. נרכוש שוב דרך דורעם.",
@@ -62,41 +63,6 @@ const DEFAULT_CONTENT: Record<string, string> = {
   "footer_tagline": "ייעוץ וליווי אישי למשקיעים ישראלים ברכישת דירה להשקעה בבוקרשט — מהבחירה ועד לניהול הנכס."
 };
 
-async function hmac(key: string, message: string): Promise<string> {
-  const enc = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(key),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", cryptoKey, enc.encode(message));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-function getCookie(req: Request, name: string): string {
-  const header = req.headers.get("cookie") || "";
-  const found = header.split(";").map((s) => s.trim()).find((s) => s.startsWith(name + "="));
-  return found ? found.slice(name.length + 1) : "";
-}
-
-async function isAuthed(req: Request): Promise<boolean> {
-  const token = getCookie(req, "admin_session");
-  if (!token) return false;
-  const parts = token.split(".");
-  if (parts.length !== 2) return false;
-  const [expiryStr, sig] = parts;
-  const expiry = Number(expiryStr);
-  if (!expiry || Date.now() > expiry) return false;
-  const SECRET = Netlify.env.get("ADMIN_SESSION_SECRET") || "";
-  if (!SECRET) return false;
-  const expected = await hmac(SECRET, expiryStr);
-  return expected === sig;
-}
-
 function json(data: unknown, status = 200, extraHeaders?: Record<string, string>) {
   return new Response(JSON.stringify(data), {
     status,
@@ -114,12 +80,30 @@ function toCSV(rows: Record<string, unknown>[]): string {
 }
 
 const MAX_UPLOAD_BYTES = 6 * 1024 * 1024;
+const LAUNCH_DATE = "2026-08-09";
+
+const SRC_LABELS: Record<string, string> = {
+  direct: "ישירה",
+  organic: "חיפוש אורגני",
+  social: "רשתות חברתיות",
+  referral: "הפניה מאתר אחר",
+  internal: "פנימי"
+};
+
+function pageLabel(path: string): string {
+  const p = (path || "").split("?")[0].split("#")[0];
+  if (p === "" || p === "/" || p === "/index.html") return "עמוד הבית";
+  if (p.indexOf("faq") !== -1) return "שאלות ותשובות";
+  if (p.indexOf("privacy") !== -1) return "מדיניות פרטיות ונגישות";
+  return p || "עמוד הבית";
+}
 
 export default async (req: Request, context: Context) => {
   const url = new URL(req.url);
   const action = url.pathname.replace(/^\/api\/admin\/?/, "").split("/")[0] || "";
 
   if (action === "logout") {
+    await destroySession(req);
     return json(
       { ok: true },
       200,
@@ -127,30 +111,51 @@ export default async (req: Request, context: Context) => {
     );
   }
 
-  // Password gate removed at the site owner's request -- /admin is only
-  // reachable if someone has the exact URL (it isn't linked anywhere on
-  // the public site and is excluded from robots.txt), but note this means
-  // anyone with the link can view leads and edit content.
+  if (action === "check") {
+    return (await isAuthed(req)) ? json({ ok: true }) : json({ ok: false }, 401);
+  }
+
+  if (!(await isAuthed(req))) {
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
 
   // ---------- stats ----------
   if (action === "stats" && req.method === "GET") {
-    const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days") || "7")));
+    const days = Math.min(365, Math.max(1, Number(url.searchParams.get("days") || "7")));
     const store = getStore("analytics-events");
-    const now = new Date();
-    const dateList: string[] = [];
-    for (let i = 0; i < days; i++) {
-      const d = new Date(now);
-      d.setUTCDate(d.getUTCDate() - i);
-      dateList.push(d.toISOString().slice(0, 10));
+
+    function datesFor(endOffsetDays: number, count: number): string[] {
+      const now = new Date();
+      const list: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const d = new Date(now);
+        d.setUTCDate(d.getUTCDate() - endOffsetDays - i);
+        list.push(d.toISOString().slice(0, 10));
+      }
+      return list;
     }
 
-    let allEvents: any[] = [];
-    for (const date of dateList) {
-      const { blobs } = await store.list({ prefix: `events/${date}/` });
-      if (!blobs.length) continue;
-      const chunk = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" })));
-      allEvents = allEvents.concat(chunk.filter(Boolean));
+    async function loadEvents(dates: string[]): Promise<any[]> {
+      let all: any[] = [];
+      for (const date of dates) {
+        const { blobs } = await store.list({ prefix: `events/${date}/` });
+        if (!blobs.length) continue;
+        const chunk = await Promise.all(blobs.map((b) => store.get(b.key, { type: "json" })));
+        all = all.concat(chunk.filter(Boolean));
+      }
+      return all;
     }
+
+    const dateList = datesFor(0, days);
+    const prevDateList = datesFor(days, days);
+
+    const launch = new Date(LAUNCH_DATE + "T00:00:00Z");
+    const allTimeDaysRaw = Math.floor((Date.now() - launch.getTime()) / 86400000) + 1;
+    const allTimeDays = Math.min(370, Math.max(1, allTimeDaysRaw));
+
+    const allEvents = await loadEvents(dateList);
+    const prevEvents = await loadEvents(prevDateList);
+    const allTimeEvents = allTimeDays <= days ? allEvents : await loadEvents(datesFor(0, allTimeDays));
 
     const visitors = new Set<string>();
     const newVisitors = new Set<string>();
@@ -161,6 +166,10 @@ export default async (req: Request, context: Context) => {
     const scrollBuckets: Record<string, number> = { "25": 0, "50": 0, "75": 0, "100": 0 };
     const clickPoints: { x: number; y: number; path: string }[] = [];
     const byDate: Record<string, { pageviews: number; visitors: Set<string> }> = {};
+    const topPages: Record<string, number> = {};
+    const geo: Record<string, number> = {};
+    const deviceCounts: Record<string, number> = {};
+    const browserCounts: Record<string, number> = {};
     let pageviews = 0,
       whatsapp = 0,
       phone = 0,
@@ -184,6 +193,12 @@ export default async (req: Request, context: Context) => {
         pageviews++;
         byDate[d].pageviews++;
         sources[src] = (sources[src] || 0) + 1;
+        const pg = pageLabel(ev.path);
+        topPages[pg] = (topPages[pg] || 0) + 1;
+        const country = ev.country || "לא ידוע";
+        geo[country] = (geo[country] || 0) + 1;
+        if (ev.device) deviceCounts[ev.device] = (deviceCounts[ev.device] || 0) + 1;
+        if (ev.browser) browserCounts[ev.browser] = (browserCounts[ev.browser] || 0) + 1;
       }
       if (ev.type === "whatsapp_click") whatsapp++;
       if (ev.type === "phone_click") phone++;
@@ -205,7 +220,7 @@ export default async (req: Request, context: Context) => {
       }
     }
 
-    const trend = dateList
+    const dailyTrend = dateList
       .slice()
       .reverse()
       .map((d) => ({
@@ -214,8 +229,106 @@ export default async (req: Request, context: Context) => {
         visitors: byDate[d] ? byDate[d].visitors.size : 0
       }));
 
+    // bucket the trend into at most 20 groups for readability on long ranges
+    const bucketSize = Math.max(1, Math.ceil(dailyTrend.length / 20));
+    const trend: { date: string; pageviews: number; visitors: number }[] = [];
+    for (let i = 0; i < dailyTrend.length; i += bucketSize) {
+      const chunk = dailyTrend.slice(i, i + bucketSize);
+      const visitorUnion = new Set<string>();
+      trend.push({
+        date: bucketSize === 1 ? chunk[0].date : `${chunk[0].date} – ${chunk[chunk.length - 1].date}`,
+        pageviews: chunk.reduce((a, c) => a + c.pageviews, 0),
+        visitors: chunk.reduce((a, c) => a + c.visitors, 0)
+      });
+    }
+
     const conversions = forms + whatsapp;
     const conversionRate = pageviews > 0 ? Math.round((conversions / pageviews) * 1000) / 10 : 0;
+
+    // ---- previous period + all-time basic totals ----
+    function basicTotals(events: any[]) {
+      let pv = 0;
+      const vs = new Set<string>();
+      for (const ev of events) {
+        if (!ev) continue;
+        if (ev.visitorId) vs.add(ev.visitorId);
+        if (ev.type === "pageview") pv++;
+      }
+      return { pageviews: pv, visitors: vs.size };
+    }
+    const prevTotals = basicTotals(prevEvents);
+    const allTimeTotals = basicTotals(allTimeEvents);
+
+    // ---- insights ----
+    const insights: { level: string; text: string }[] = [];
+
+    if (prevTotals.pageviews === 0 && prevTotals.visitors === 0) {
+      insights.push({
+        level: "green",
+        text: "אלה הכניסות הראשונות שנרשמו בטווח הזה — אין עדיין תקופה קודמת להשוואה."
+      });
+    } else if (prevTotals.pageviews > 0) {
+      const deltaPct = Math.round(((pageviews - prevTotals.pageviews) / prevTotals.pageviews) * 1000) / 10;
+      const dir = deltaPct >= 0 ? "גבוהות" : "נמוכות";
+      insights.push({
+        level: deltaPct >= 0 ? "green" : "orange",
+        text: `כניסות בטווח הנוכחי ${dir} ב-${Math.abs(deltaPct)}% לעומת התקופה הקודמת באותו אורך.`
+      });
+    }
+
+    if (sessions.size > 0) {
+      const avgPages = Math.round((pageviews / sessions.size) * 10) / 10;
+      insights.push({ level: "green", text: `בממוצע כל מבקר צופה ב-${avgPages} עמודים/מדורים בביקור באתר.` });
+    }
+
+    const totalSourced = Object.values(sources).reduce((a, b) => a + b, 0);
+    if (totalSourced > 0) {
+      const directPct = Math.round(((sources.direct || 0) / totalSourced) * 1000) / 10;
+      if (directPct >= 25) {
+        insights.push({
+          level: "orange",
+          text: `${directPct}% מהכניסות הן ישירות או ממקור לא ידוע — קשה לדעת מאיפה מגיעים גולשים. שיתוף קישורים עם מעקב (utm) יעזור לזהות מקורות בעתיד.`
+        });
+      }
+      const sortedSrc = Object.entries(sources).sort((a, b) => b[1] - a[1]);
+      if (sortedSrc.length >= 2) {
+        const [name, count] = sortedSrc[1];
+        const pct = Math.round((count / totalSourced) * 1000) / 10;
+        insights.push({ level: "gray", text: `המקור השני בגודלו הוא ${SRC_LABELS[name] || name} (${pct}%).` });
+      }
+    }
+
+    const topPageSorted = Object.entries(topPages).sort((a, b) => b[1] - a[1]);
+    if (topPageSorted.length) {
+      insights.push({
+        level: "gray",
+        text: `המדור הכי נצפה הוא "${topPageSorted[0][0]}" עם ${topPageSorted[0][1]} צפיות.`
+      });
+    }
+
+    const maxDay = dailyTrend.slice().sort((a, b) => b.pageviews - a.pageviews)[0];
+    if (maxDay && maxDay.pageviews > 0) {
+      insights.push({ level: "gray", text: `היום הכי פעיל בטווח היה ב-${maxDay.date} עם ${maxDay.pageviews} כניסות.` });
+    }
+
+    const weekendVals: number[] = [];
+    const weekdayVals: number[] = [];
+    dailyTrend.forEach((d) => {
+      const dow = new Date(d.date + "T00:00:00Z").getUTCDay(); // 5=Fri, 6=Sat
+      if (dow === 5 || dow === 6) weekendVals.push(d.pageviews);
+      else weekdayVals.push(d.pageviews);
+    });
+    const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    const avgWeekend = avg(weekendVals);
+    const avgWeekday = avg(weekdayVals);
+    if (avgWeekday > 0 && weekendVals.length && weekdayVals.length) {
+      const liftPct = Math.round(((avgWeekend - avgWeekday) / avgWeekday) * 1000) / 10;
+      const dir2 = liftPct >= 0 ? "גבוהה" : "נמוכה";
+      insights.push({
+        level: "gray",
+        text: `התנועה בסוף"ש (שישי-שבת) ${dir2} ב-${Math.abs(liftPct)}% בממוצע לעומת ימות השבוע.`
+      });
+    }
 
     return json({
       ok: true,
@@ -229,13 +342,24 @@ export default async (req: Request, context: Context) => {
         phone,
         forms,
         instagram,
-        conversionRate
+        conversionRate,
+        avgPerDay: Math.round((pageviews / days) * 10) / 10
+      },
+      allTime: {
+        days: allTimeDays,
+        pageviews: allTimeTotals.pageviews,
+        visitors: allTimeTotals.visitors
       },
       sources,
       buttons,
       reels,
       scrollBuckets,
       trend,
+      topPages,
+      geo,
+      deviceCounts,
+      browserCounts,
+      insights,
       clickPoints: clickPoints.slice(0, 3000)
     });
   }
@@ -361,6 +485,7 @@ export default async (req: Request, context: Context) => {
           מקור: l.attribution?.firstTouch?.source || "",
           קמפיין: l.attribution?.firstTouch?.campaign || "",
           עמוד: l.path,
+          "הסכמה לדיוור": l.marketingConsent ? "כן" : "לא",
           סטטוס: l.status
         }))
       );
