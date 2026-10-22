@@ -1,6 +1,6 @@
 import type { Context, Config } from "@netlify/functions";
 import { getStore } from "@netlify/blobs";
-import { isAuthed, destroySession } from "../lib/auth.mts";
+import { isAuthed, destroySession, passwordMatches, createSession, isLocked, recordFail, clearFails, SESSION_HOURS } from "../lib/auth.mts";
 
 const DEFAULT_CONTENT: Record<string, string> = {
   "hero_title_line1": "דירה להשקעה בבוקרשט",
@@ -101,6 +101,26 @@ function pageLabel(path: string): string {
 export default async (req: Request, context: Context) => {
   const url = new URL(req.url);
   const action = url.pathname.replace(/^\/api\/admin\/?/, "").split("/")[0] || "";
+
+  if (action === "login" && req.method === "POST") {
+    const ip = (context as any).ip as string | undefined;
+    if (await isLocked(req, ip)) {
+      return json({ ok: false, error: "יותר מדי ניסיונות. נסו שוב בעוד 15 דקות." }, 429);
+    }
+    let body: any = {};
+    try { body = await req.json(); } catch { /* ignore */ }
+    const provided = typeof body?.password === "string" ? body.password.slice(0, 200) : "";
+    if (!(await passwordMatches(provided))) {
+      await recordFail(req, ip);
+      await new Promise((r) => setTimeout(r, 400));
+      return json({ ok: false, error: "סיסמה שגויה" }, 401);
+    }
+    await clearFails(req, ip);
+    const token = await createSession();
+    return json({ ok: true }, 200, {
+      "Set-Cookie": `admin_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_HOURS * 3600}`
+    });
+  }
 
   if (action === "logout") {
     await destroySession(req);
