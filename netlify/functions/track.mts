@@ -87,6 +87,35 @@ export default async (req: Request, context: Context) => {
       status: "new"
     };
     await leads.setJSON(`leads/${leadId}.json`, lead);
+
+    // Optional instant e-mail alert (needs RESEND_API_KEY + NOTIFY_EMAIL in Netlify env vars)
+    try {
+      const rk = Netlify.env.get("RESEND_API_KEY");
+      const to = Netlify.env.get("NOTIFY_EMAIL");
+      if (rk && to) {
+        const esc = (x: string) => String(x || "").replace(/[<>&]/g, "");
+        const src = (record.attribution as any)?.firstTouch?.source || "direct";
+        await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${rk}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: Netlify.env.get("NOTIFY_FROM") || "Doram Site <onboarding@resend.dev>",
+            to: [to],
+            subject: `ליד חדש מהאתר: ${esc(String(lead.name))}`,
+            html: `<div dir="rtl" style="font-family:Arial,sans-serif">
+              <h2>ליד חדש באתר</h2>
+              <p><b>שם:</b> ${esc(String(lead.name))}<br>
+              <b>טלפון:</b> ${esc(String(lead.phone))}<br>
+              <b>אימייל:</b> ${esc(String(lead.email))}<br>
+              <b>עיר:</b> ${esc(String(lead.city))} · <b>תקציב:</b> ${esc(String(lead.budget))}<br>
+              <b>מקור:</b> ${esc(String(src))}</p>
+              <p><b>הודעה:</b> ${esc(String(lead.message))}</p>
+              <p><a href="https://wa.me/${esc(String(lead.phone)).replace(/[^0-9]/g, "").replace(/^0/, "972")}">פתיחת וואטסאפ</a></p>
+            </div>`
+          })
+        });
+      }
+    } catch { /* never block the form because of e-mail */ }
   }
 
   return new Response(null, { status: 204 });

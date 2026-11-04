@@ -176,6 +176,51 @@
   @media (max-width: 640px) { .mini-table-grid { grid-template-columns: 1fr; } }
   .mini-table-title { font-size: 12px; color: var(--text-muted); margin: 14px 0 8px; }
   .mini-table-title:first-child { margin-top: 0; }
+
+  .delta { font-size: 11px; margin-top: 4px; }
+  .delta.up { color: var(--ok); }
+  .delta.down { color: #d98a7a; }
+  .delta.flat { color: var(--text-muted); }
+
+  .funnel-step { margin-bottom: 12px; }
+  .funnel-step .f-head { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-soft); margin-bottom: 5px; }
+  .funnel-step .f-head b { color: var(--gold); }
+  .funnel-step .f-track { background: var(--navy-deep); border-radius: 6px; height: 18px; overflow: hidden; }
+  .funnel-step .f-fill { height: 100%; background: var(--gold); border-radius: 6px; }
+  .funnel-step .f-drop { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+  .note-box { background: rgba(201,165,90,0.07); border: 1px solid rgba(201,165,90,0.2); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--text-muted); margin-top: 12px; line-height: 1.6; }
+
+  .lead-kpis { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+  .lead-kpis .kpi { background: var(--navy-deep); border-radius: 8px; padding: 8px 14px; font-size: 12px; color: var(--text-muted); }
+  .lead-kpis .kpi b { color: var(--gold); font-size: 16px; margin-left: 6px; }
+  .lead-note { width: 190px; min-height: 0; height: 34px; padding: 6px 8px; font-size: 12px; }
+  .lead-follow { width: 128px; padding: 5px 6px; font-size: 12px; }
+  .btn-wa { display: inline-block; padding: 5px 10px; border-radius: 6px; background: #25a244; color: #fff !important; font-size: 12px; text-decoration: none; white-space: nowrap; }
+
+  .ai-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
+  .ai-chip { border: 1px solid rgba(201,165,90,0.3); background: transparent; color: var(--text-soft); border-radius: 18px; padding: 7px 13px; font-size: 12px; cursor: pointer; }
+  .ai-chip:hover { border-color: var(--gold); color: var(--gold); }
+  .ai-thread { display: flex; flex-direction: column; gap: 12px; margin-bottom: 14px; }
+  .ai-msg { padding: 12px 14px; border-radius: 10px; font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+  .ai-msg.q { background: var(--navy-deep); color: var(--cream); align-self: flex-start; max-width: 90%; }
+  .ai-msg.a { background: rgba(201,165,90,0.09); border: 1px solid rgba(201,165,90,0.22); color: var(--text-soft); }
+  .ai-msg.err { color: #e0a090; }
+  .ai-row { display: flex; gap: 10px; align-items: flex-end; }
+  .ai-row textarea { min-height: 54px; flex: 1; }
+  .ai-row .btn { width: auto; padding: 12px 24px; }
+
+  .utm-out { direction: ltr; text-align: left; word-break: break-all; background: var(--navy-deep); border-radius: 8px; padding: 10px 12px; font-size: 12px; color: var(--gold); margin: 10px 0; min-height: 20px; }
+
+  @media print {
+    body { background: #fff !important; color: #000 !important; }
+    .tabs, .top-bar .actions, #login-screen, .save-bar { display: none !important; }
+    .card { border-color: #ccc !important; background: #fff !important; break-inside: avoid; }
+    .card h2, .stat-box .num, .bar-row .bar-count { color: #8a6a1f !important; }
+    .stat-box, .bar-row .bar-track { background: #f1f1f1 !important; }
+    .bar-row .bar-label, .insight-item, td, th { color: #222 !important; }
+    .panel { display: block !important; }
+    .panel:not(#panel-overview) { display: none !important; }
+  }
 </style>
 </head>
 <body>
@@ -195,6 +240,8 @@
     <h1>לוח בקרה — דורעם אביר</h1>
     <div class="actions">
       <label class="muted">טווח: <select id="range-select"></select></label>
+      <button class="btn secondary" id="print-report" type="button">הדפסת דוח</button>
+      <button class="btn secondary" id="logout-btn" type="button">יציאה</button>
     </div>
   </div>
 
@@ -204,6 +251,8 @@
     <button class="tab-btn" data-tab="leads">לידים</button>
     <button class="tab-btn" data-tab="reels">רילסים</button>
     <button class="tab-btn" data-tab="heatmap">גלילה וקליקים</button>
+    <button class="tab-btn" data-tab="ask">שאל את הנתונים (AI)</button>
+    <button class="tab-btn" data-tab="tools">כלים</button>
     <button class="tab-btn" data-tab="content">עריכת תוכן</button>
     <button class="tab-btn" data-tab="versions">גרסאות</button>
   </div>
@@ -213,8 +262,17 @@
       <div class="stat-grid" id="overview-stats"></div>
     </div>
     <div class="card">
+      <h2>משפך המרה — מביקור לליד</h2>
+      <div id="overview-funnel"></div>
+      <div class="note-box">הנתונים כוללים רק מבקרים שאישרו עוגיות ניתוח בבאנר. לידים (טפסים) נספרים תמיד, ולכן מספר הלידים עשוי להיות גבוה ביחס למבקרים שנספרו.</div>
+    </div>
+    <div class="card">
       <h2>תובנות</h2>
       <div class="insight-list" id="overview-insights"></div>
+    </div>
+    <div class="card">
+      <h2>לידים לפי מקור</h2>
+      <div id="overview-lead-sources"></div>
     </div>
     <div class="card">
       <h2>מגמה (צפיות בעמוד וכניסות)</h2>
@@ -257,10 +315,11 @@
     <div class="card">
       <h2>לידים</h2>
       <p class="muted" style="margin-bottom:14px;">כל ליד מקושר למקור, לקמפיין ולעמוד שבו הוגש הטופס.</p>
+      <div class="lead-kpis" id="lead-kpis"></div>
       <a class="btn secondary" style="display:inline-block;width:auto;padding:9px 18px;margin-bottom:14px;" href="/api/admin/export?type=leads" target="_blank">ייצוא ל-CSV</a>
       <div style="overflow-x:auto;">
         <table id="leads-table">
-          <thead><tr><th>תאריך</th><th>שם</th><th>טלפון</th><th>אימייל</th><th>מקור</th><th>קמפיין</th><th>עמוד</th><th>דיוור</th><th>סטטוס</th></tr></thead>
+          <thead><tr><th>תאריך</th><th>שם</th><th>טלפון</th><th>אימייל</th><th>מקור</th><th>קמפיין</th><th>עמוד</th><th>דיוור</th><th>סטטוס</th><th>הערה</th><th>חזרה בתאריך</th><th>וואטסאפ</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -285,6 +344,43 @@
       <h2>מפת קליקים (עמוד הבית)</h2>
       <p class="muted" style="margin-bottom:14px;">כל נקודה מייצגת קליק אחד, לפי המיקום היחסי בעמוד.</p>
       <div class="heatmap-box" id="heatmap-box"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-ask">
+    <div class="card">
+      <h2>שאל את הנתונים</h2>
+      <p class="muted">שאלו בעברית חופשית על ביקורים, מקורות, לידים וכפתורים. התשובות מבוססות על נתוני האתר בטווח הנבחר למעלה. ל-AI נשלחים נתונים מצטברים ולידים בלי שם, טלפון או אימייל.</p>
+      <div class="ai-chips" id="ai-chips"></div>
+      <div class="ai-thread" id="ai-thread"></div>
+      <div class="ai-row">
+        <textarea id="ai-question" placeholder="למשל: מאיפה מגיעים רוב הלידים ומה כדאי לי לשפר?"></textarea>
+        <button class="btn" id="ai-send" type="button">שאל</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel-tools">
+    <div class="card">
+      <h2>מחולל קישורים עם מעקב (UTM)</h2>
+      <p class="muted" style="margin-bottom:14px;">צרו קישור לכל פוסט או מודעה כדי לדעת בדיוק איזה ערוץ מביא כניסות ולידים. הדביקו את הקישור בביו, בסטורי או בקמפיין.</p>
+      <div class="field-row-2">
+        <div class="field-group"><label>מקור (source)</label>
+          <select id="utm-source">
+            <option value="instagram">instagram</option><option value="facebook">facebook</option><option value="whatsapp">whatsapp</option>
+            <option value="youtube">youtube</option><option value="google">google</option><option value="email">email</option><option value="other">אחר...</option>
+          </select></div>
+        <div class="field-group"><label>סוג (medium)</label>
+          <select id="utm-medium"><option value="social">social</option><option value="cpc">cpc (פרסום ממומן)</option><option value="email">email</option><option value="bio">bio</option><option value="story">story</option></select></div>
+      </div>
+      <div class="field-group"><label>שם הקמפיין (campaign)</label><input class="field-input" id="utm-campaign" placeholder="למשל: reel_bucharest_nov"></div>
+      <div class="utm-out" id="utm-out"></div>
+      <button class="btn" id="utm-copy" type="button" style="width:auto;">העתקת קישור</button>
+      <span class="save-msg" id="utm-msg"></span>
+    </div>
+    <div class="card">
+      <h2>התראה במייל על ליד חדש</h2>
+      <p class="muted">כדי לקבל מייל מיידי בכל ליד: ב-Netlify (Project configuration ← Environment variables) הוסיפו <b>RESEND_API_KEY</b> (מפתח חינמי מ-resend.com) ו-<b>NOTIFY_EMAIL</b> (המייל שלכם), ובצעו Deploy מחדש.</p>
     </div>
   </div>
 
@@ -415,21 +511,59 @@
     }).join('');
   }
 
+  function deltaHtml(cur, prev) {
+    if (prev === undefined || prev === null) return '';
+    if (!prev && !cur) return '<div class="delta flat">ללא שינוי</div>';
+    if (!prev) return '<div class="delta up">חדש בתקופה זו</div>';
+    var pct = Math.round(((cur - prev) / prev) * 100);
+    if (pct === 0) return '<div class="delta flat">ללא שינוי מהתקופה הקודמת</div>';
+    return '<div class="delta ' + (pct > 0 ? 'up' : 'down') + '">' + (pct > 0 ? '▲ ' : '▼ ') + Math.abs(pct) + '% מהתקופה הקודמת</div>';
+  }
+
+  function renderFunnel(f) {
+    var steps = [
+      ['מבקרים באתר', f.visitors],
+      ['גללו עד חצי עמוד ומעלה', f.scroll50],
+      ['גללו עד סוף העמוד', f.scrollEnd],
+      ['לחצו על וואטסאפ או טלפון', f.contacted],
+      ['השאירו פרטים בטופס', f.leads]
+    ];
+    var top = Math.max(steps[0][1], 1);
+    return steps.map(function (st, i) {
+      var pct = Math.min(100, Math.round((st[1] / top) * 100));
+      var drop = '';
+      if (i > 0 && steps[i - 1][1] > 0) {
+        var kept = Math.round((st[1] / steps[i - 1][1]) * 100);
+        drop = '<div class="f-drop">' + kept + '% מהשלב הקודם</div>';
+      }
+      return '<div class="funnel-step"><div class="f-head"><span>' + st[0] + '</span><b>' + st[1] + '</b></div><div class="f-track"><div class="f-fill" style="width:' + pct + '%"></div></div>' + drop + '</div>';
+    }).join('');
+  }
+
   function loadOverview() {
     getStats().then(function (s) {
       if (!s || !s.ok) return;
       var t = s.totals;
       var at = s.allTime || {};
+      var pv = s.prev || {};
       var boxes = [
-        ['ממוצע כניסות ליום', t.avgPerDay],
-        ['מבקרים ייחודיים בטווח שנבחר', t.visitors],
-        ['כניסות בטווח שנבחר', t.pageviews],
-        ['סה"כ מבקרים ייחודיים (מאז ההקמה)', at.visitors],
-        ['סה"כ כניסות (מאז ההקמה)', at.pageviews]
+        ['מבקרים ייחודיים בטווח', t.visitors, deltaHtml(t.visitors, pv.visitors)],
+        ['כניסות בטווח', t.pageviews, deltaHtml(t.pageviews, pv.pageviews)],
+        ['לידים (טפסים)', t.forms, deltaHtml(t.forms, pv.leads)],
+        ['פניות בוואטסאפ/טלפון', t.whatsapp + t.phone, deltaHtml(t.whatsapp + t.phone, pv.contacts)],
+        ['שיעור פנייה מכניסות', t.conversionRate + '%', ''],
+        ['ממוצע כניסות ליום', t.avgPerDay, ''],
+        ['סה"כ מבקרים (מאז ההקמה)', at.visitors, ''],
+        ['סה"כ כניסות (מאז ההקמה)', at.pageviews, '']
       ];
       document.getElementById('overview-stats').innerHTML = boxes.map(function (b) {
-        return '<div class="stat-box"><div class="num">' + b[1] + '</div><div class="label">' + b[0] + '</div></div>';
+        return '<div class="stat-box"><div class="num">' + b[1] + '</div><div class="label">' + b[0] + '</div>' + b[2] + '</div>';
       }).join('');
+
+      if (s.funnel) document.getElementById('overview-funnel').innerHTML = renderFunnel(s.funnel);
+      var lsLabels = { direct: 'ישירה / לא ידוע', organic: 'חיפוש אורגני', social: 'רשתות חברתיות', referral: 'הפניה מאתר אחר', internal: 'פנימי' };
+      var lsEntries = Object.entries(s.leadsBySource || {}).sort(function (a, b) { return b[1] - a[1]; });
+      document.getElementById('overview-lead-sources').innerHTML = barList(lsEntries, function (k) { return lsLabels[k] || k; }, 'אין עדיין לידים בטווח שנבחר.');
 
       var insights = s.insights || [];
       document.getElementById('overview-insights').innerHTML = insights.length ? insights.map(function (i) {
@@ -509,13 +643,29 @@
   document.querySelector('[data-tab="heatmap"]').addEventListener('click', renderHeatmap);
 
   /* ---------- leads ---------- */
-  var STATUS_LABELS = { new: 'חדש', contacted: 'נוצר קשר', won: 'נסגר בהצלחה', lost: 'לא רלוונטי' };
+  var STATUS_LABELS = { new: 'חדש', contacted: 'נוצר קשר', meeting: 'נקבעה פגישה', won: 'נסגר בהצלחה', lost: 'לא רלוונטי' };
+  function waLink(phone) {
+    var d = String(phone || '').replace(/[^0-9]/g, '');
+    if (d.indexOf('0') === 0) d = '972' + d.slice(1);
+    return 'https://wa.me/' + d;
+  }
+  function saveLead(id, patch) {
+    patch.id = id;
+    return api('/api/admin/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+  }
   function loadLeads() {
     api('/api/admin/leads').then(function (res) {
       if (res.status === 401) { showLogin('פג תוקף ההתחברות.'); return; }
       var leads = (res.data && res.data.leads) || [];
       var tbody = document.querySelector('#leads-table tbody');
       document.getElementById('leads-empty').classList.toggle('hidden', leads.length > 0);
+      var counts = {};
+      leads.forEach(function (l) { counts[l.status || 'new'] = (counts[l.status || 'new'] || 0) + 1; });
+      var kp = '<div class="kpi"><b>' + leads.length + '</b>סה"כ לידים</div>';
+      Object.keys(STATUS_LABELS).forEach(function (k) { kp += '<div class="kpi"><b>' + (counts[k] || 0) + '</b>' + STATUS_LABELS[k] + '</div>'; });
+      var closed = (counts.won || 0), total = leads.length;
+      if (total) kp += '<div class="kpi"><b>' + Math.round((closed / total) * 100) + '%</b>שיעור סגירה</div>';
+      document.getElementById('lead-kpis').innerHTML = kp;
       tbody.innerHTML = leads.map(function (l) {
         var date = new Date(l.ts).toLocaleDateString('he-IL') + ' ' + new Date(l.ts).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
         var src = (l.attribution && l.attribution.firstTouch && l.attribution.firstTouch.source) || '';
@@ -533,13 +683,19 @@
           '<td>' + escapeHtml(l.path || '') + '</td>' +
           '<td>' + (l.marketingConsent ? 'כן' : 'לא') + '</td>' +
           '<td><select class="status-select lead-status">' + options + '</select></td>' +
+          '<td><textarea class="lead-note" placeholder="הערה...">' + escapeHtml(l.note || '') + '</textarea></td>' +
+          '<td><input type="date" class="lead-follow" value="' + escapeHtml(l.followUp || '') + '"></td>' +
+          '<td><a class="btn-wa" target="_blank" rel="noopener" href="' + waLink(l.phone) + '">וואטסאפ</a></td>' +
           '</tr>';
       }).join('');
       tbody.querySelectorAll('.lead-status').forEach(function (sel) {
-        sel.addEventListener('change', function () {
-          var id = sel.closest('tr').getAttribute('data-id');
-          api('/api/admin/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: id, status: sel.value }) });
-        });
+        sel.addEventListener('change', function () { saveLead(sel.closest('tr').getAttribute('data-id'), { status: sel.value }); });
+      });
+      tbody.querySelectorAll('.lead-note').forEach(function (el) {
+        el.addEventListener('blur', function () { saveLead(el.closest('tr').getAttribute('data-id'), { note: el.value }); });
+      });
+      tbody.querySelectorAll('.lead-follow').forEach(function (el) {
+        el.addEventListener('change', function () { saveLead(el.closest('tr').getAttribute('data-id'), { followUp: el.value }); });
       });
     });
   }
@@ -717,6 +873,70 @@
       });
     });
   }
+
+  /* ---------- top bar actions ---------- */
+  document.getElementById('print-report').addEventListener('click', function () {
+    var ov = document.querySelector('[data-tab="overview"]'); if (ov) ov.click();
+    setTimeout(function () { window.print(); }, 250);
+  });
+  document.getElementById('logout-btn').addEventListener('click', function () {
+    api('/api/admin/logout', { method: 'POST' }).then(function () { showLogin(''); });
+  });
+
+  /* ---------- AI: ask the data ---------- */
+  var AI_SUGGESTIONS = [
+    'תן לי סיכום של הטווח הנבחר ב-5 שורות',
+    'מאיפה מגיעים הלידים ומה כדאי להשקיע בו?',
+    'איפה מבקרים נושרים במשפך ומה לשפר?',
+    'האם המבקרים מגיעים מנייד או ממחשב ומה זה אומר?',
+    'איזה ריל או כפתור עובד הכי טוב?',
+    'מה הצעדים הכי חשובים לשבוע הקרוב?'
+  ];
+  var aiChips = document.getElementById('ai-chips');
+  aiChips.innerHTML = AI_SUGGESTIONS.map(function (q) { return '<button type="button" class="ai-chip">' + q + '</button>'; }).join('');
+  aiChips.querySelectorAll('.ai-chip').forEach(function (b) {
+    b.addEventListener('click', function () { document.getElementById('ai-question').value = b.textContent; askAi(); });
+  });
+  var aiBusy = false;
+  function askAi() {
+    var qEl = document.getElementById('ai-question');
+    var q = qEl.value.trim();
+    if (!q || aiBusy) return;
+    aiBusy = true;
+    var thread = document.getElementById('ai-thread');
+    var qd = document.createElement('div'); qd.className = 'ai-msg q'; qd.textContent = q; thread.appendChild(qd);
+    var ad = document.createElement('div'); ad.className = 'ai-msg a'; ad.textContent = 'חושב...'; thread.appendChild(ad);
+    qEl.value = '';
+    document.getElementById('ai-send').disabled = true;
+    api('/api/admin/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, days: Number(rangeSelect.value) }) })
+      .then(function (res) {
+        if (res.status === 401) { showLogin('פג תוקף ההתחברות.'); return; }
+        if (res.data && res.data.ok) { ad.textContent = res.data.answer; }
+        else { ad.className = 'ai-msg a err'; ad.textContent = (res.data && res.data.error) || 'שגיאה לא צפויה.'; }
+      })
+      .catch(function () { ad.className = 'ai-msg a err'; ad.textContent = 'שגיאת תקשורת, נסו שוב.'; })
+      .then(function () { aiBusy = false; document.getElementById('ai-send').disabled = false; ad.scrollIntoView({ block: 'nearest' }); });
+  }
+  document.getElementById('ai-send').addEventListener('click', askAi);
+  document.getElementById('ai-question').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askAi(); } });
+
+  /* ---------- UTM builder ---------- */
+  function buildUtm() {
+    var src = document.getElementById('utm-source').value;
+    var med = document.getElementById('utm-medium').value;
+    var camp = document.getElementById('utm-campaign').value.trim().replace(/\s+/g, '_');
+    var u = 'https://doramabir.com/?utm_source=' + encodeURIComponent(src) + '&utm_medium=' + encodeURIComponent(med);
+    if (camp) u += '&utm_campaign=' + encodeURIComponent(camp);
+    document.getElementById('utm-out').textContent = u;
+    return u;
+  }
+  ['utm-source', 'utm-medium', 'utm-campaign'].forEach(function (id) { document.getElementById(id).addEventListener('input', buildUtm); document.getElementById(id).addEventListener('change', buildUtm); });
+  document.getElementById('utm-copy').addEventListener('click', function () {
+    var u = buildUtm();
+    var done = function () { var m = document.getElementById('utm-msg'); m.textContent = 'הועתק'; setTimeout(function () { m.textContent = ''; }, 2000); };
+    if (navigator.clipboard) navigator.clipboard.writeText(u).then(done); else done();
+  });
+  buildUtm();
 
   /* ---------- init ---------- */
   api('/api/admin/check').then(function (res) {

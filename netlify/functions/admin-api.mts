@@ -196,8 +196,20 @@ export default async (req: Request, context: Context) => {
       forms = 0,
       instagram = 0;
 
+    const fVisit = new Set<string>(), fScroll50 = new Set<string>(), fScroll90 = new Set<string>();
+    const fContact = new Set<string>();
+    const leadsBySource: Record<string, number> = {};
+
     for (const ev of allEvents) {
       if (!ev) continue;
+      if (ev.visitorId && ev.type === "pageview") fVisit.add(ev.visitorId);
+      if (ev.visitorId && ev.type === "scroll_depth" && ev.depth >= 50) fScroll50.add(ev.visitorId);
+      if (ev.visitorId && ev.type === "scroll_depth" && ev.depth >= 100) fScroll90.add(ev.visitorId);
+      if (ev.visitorId && (ev.type === "whatsapp_click" || ev.type === "phone_click")) fContact.add(ev.visitorId);
+      if (ev.type === "lead") {
+        const ls = (ev.attribution && ev.attribution.firstTouch && ev.attribution.firstTouch.source) || "direct";
+        leadsBySource[ls] = (leadsBySource[ls] || 0) + 1;
+      }
       const d = new Date(ev.ts).toISOString().slice(0, 10);
       if (!byDate[d]) byDate[d] = { pageviews: 0, visitors: new Set() };
       if (ev.visitorId) {
@@ -267,14 +279,16 @@ export default async (req: Request, context: Context) => {
 
     // ---- previous period + all-time basic totals ----
     function basicTotals(events: any[]) {
-      let pv = 0;
+      let pv = 0, lf = 0, ct = 0;
       const vs = new Set<string>();
       for (const ev of events) {
         if (!ev) continue;
         if (ev.visitorId) vs.add(ev.visitorId);
         if (ev.type === "pageview") pv++;
+        if (ev.type === "lead") lf++;
+        if (ev.type === "whatsapp_click" || ev.type === "phone_click") ct++;
       }
-      return { pageviews: pv, visitors: vs.size };
+      return { pageviews: pv, visitors: vs.size, leads: lf, contacts: ct };
     }
     const prevTotals = basicTotals(prevEvents);
     const allTimeTotals = basicTotals(allTimeEvents);
@@ -365,6 +379,15 @@ export default async (req: Request, context: Context) => {
         conversionRate,
         avgPerDay: Math.round((pageviews / days) * 10) / 10
       },
+      prev: prevTotals,
+      funnel: {
+        visitors: fVisit.size,
+        scroll50: fScroll50.size,
+        scrollEnd: fScroll90.size,
+        contacted: fContact.size,
+        leads: forms
+      },
+      leadsBySource,
       allTime: {
         days: allTimeDays,
         pageviews: allTimeTotals.pageviews,
@@ -395,16 +418,105 @@ export default async (req: Request, context: Context) => {
 
   if (action === "leads" && req.method === "POST") {
     const body = await req.json().catch(() => null);
-    if (!body || typeof body.id !== "string" || typeof body.status !== "string") {
-      return json({ ok: false, error: "missing id/status" }, 400);
+    if (!body || typeof body.id !== "string" || !/^lead_[a-zA-Z0-9_]+$/.test(body.id)) {
+      return json({ ok: false, error: "missing id" }, 400);
     }
     const store = getStore("leads");
     const key = `leads/${body.id}.json`;
     const existing = await store.get(key, { type: "json" });
     if (!existing) return json({ ok: false, error: "not found" }, 404);
-    existing.status = body.status;
+    if (typeof body.status === "string") existing.status = body.status.slice(0, 20);
+    if (typeof body.note === "string") existing.note = body.note.slice(0, 1000);
+    if (typeof body.followUp === "string") existing.followUp = body.followUp.slice(0, 10);
     await store.setJSON(key, existing);
     return json({ ok: true });
+  }
+
+  // ---------- AI: ask questions about the site's data ----------
+  if (action === "ask" && req.method === "POST") {
+    const body = await req.json().catch(() => null);
+    const question = body && typeof body.question === "string" ? body.question.trim().slice(0, 1000) : "";
+    const days = Math.min(365, Math.max(1, Number(body && body.days) || 30));
+    if (!question) return json({ ok: false, error: "נא לכתוב שאלה." }, 400);
+
+    const apiKey = Netlify.env.get("ANTHROPIC_API_KEY") || "";
+    if (!apiKey) {
+      return json({
+        ok: false,
+        error: "שאילתות AI עדיין לא הופעלו. יש להוסיף ב-Netlify (Project configuration ← Environment variables) משתנה בשם ANTHROPIC_API_KEY עם מפתח API מ-console.anthropic.com, ואז לבצע Deploy מחדש."
+      }, 200);
+    }
+
+    // gather aggregated stats (self-call with the same session) + anonymised leads
+    let stats: any = null;
+    try {
+      const r = await fetch(new URL(`/api/admin/stats?days=${days}`, url.origin).toString(), {
+        headers: { cookie: req.headers.get("cookie") || "" }
+      });
+      stats = await r.json();
+    } catch { /* continue without */ }
+
+    const lstore = getStore("leads");
+    const { blobs } = await lstore.list({ prefix: "leads/" });
+    const rawLeads = (await Promise.all(blobs.map((b) => lstore.get(b.key, { type: "json" })))).filter(Boolean) as any[];
+    const leadsAnon = rawLeads
+      .sort((a, b) => b.ts - a.ts)
+      .slice(0, 200)
+      .map((l) => ({
+        date: new Date(l.ts).toISOString().slice(0, 10),
+        source: (l.attribution && l.attribution.firstTouch && l.attribution.firstTouch.source) || "direct",
+        campaign: (l.attribution && l.attribution.firstTouch && l.attribution.firstTouch.campaign) || "",
+        city: l.city || "",
+        budget: l.budget || "",
+        status: l.status || "new",
+        page: l.path || "",
+        marketingConsent: !!l.marketingConsent,
+        hasNote: !!l.note
+      }));
+
+    const context = {
+      today: new Date().toISOString().slice(0, 10),
+      launchDate: LAUNCH_DATE,
+      rangeDays: days,
+      note: "analytics counts include only visitors who accepted analytics cookies; leads and form submissions are always counted",
+      stats: stats && stats.ok ? {
+        range: stats.range, totals: stats.totals, previousPeriod: stats.prev, allTime: stats.allTime,
+        funnel: stats.funnel, sources: stats.sources, leadsBySource: stats.leadsBySource,
+        topPages: stats.topPages, geo: stats.geo, devices: stats.deviceCounts, browsers: stats.browserCounts,
+        buttons: stats.buttons, reels: stats.reels, scrollDepth: stats.scrollBuckets, trend: stats.trend,
+        autoInsights: (stats.insights || []).map((i: any) => i.text)
+      } : null,
+      leads: leadsAnon
+    };
+
+    const system =
+      "אתה אנליסט נתונים של אתר נדל\"ן אישי של דורעם אביר, יועץ למשקיעים ישראלים ברכישת דירות בבוקרשט. " +
+      "אתה עונה לבעל האתר בעברית פשוטה, קצר וענייני, על סמך הנתונים בלבד ב-JSON שמצורף. " +
+      "אם הנתונים לא מספיקים או שהמדגם קטן, אמור זאת בפירוש ואל תמציא מספרים. " +
+      "ציין מספרים מדויקים כשהם קיימים, ובסוף תן המלצה מעשית אחת עד שלוש כשרלוונטי. " +
+      "אין לך גישה לשמות, טלפונים או אימיילים של לידים, ואל תבקש אותם.";
+
+    const model = Netlify.env.get("ANTHROPIC_MODEL") || "claude-sonnet-5-5";
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1200,
+          system,
+          messages: [{ role: "user", content: "נתוני האתר (JSON):\n" + JSON.stringify(context) + "\n\nשאלה: " + question }]
+        })
+      });
+      const data: any = await r.json();
+      if (!r.ok) {
+        return json({ ok: false, error: "שגיאה משירות ה-AI: " + ((data && data.error && data.error.message) || r.status) }, 200);
+      }
+      const text = (data.content || []).map((c: any) => c.text || "").join("").trim();
+      return json({ ok: true, answer: text || "לא התקבלה תשובה." });
+    } catch (e: any) {
+      return json({ ok: false, error: "לא הצלחנו להגיע לשירות ה-AI. נסו שוב בעוד רגע." }, 200);
+    }
   }
 
   // ---------- content ----------
@@ -506,7 +618,9 @@ export default async (req: Request, context: Context) => {
           קמפיין: l.attribution?.firstTouch?.campaign || "",
           עמוד: l.path,
           "הסכמה לדיוור": l.marketingConsent ? "כן" : "לא",
-          סטטוס: l.status
+          סטטוס: l.status,
+          הערה: l.note || "",
+          "תאריך חזרה": l.followUp || ""
         }))
       );
       return new Response(csv, {

@@ -1744,3 +1744,20 @@ html.a11y-readable h1, html.a11y-readable h2, html.a11y-readable h3, html.a11y-r
 .map-load-btn:focus-visible { outline: 2px solid var(--gold, #c9a45c); outline-offset: 2px; }
 .map-consent iframe { width: 100%; height: 100%; border: 0; border-radius: var(--radius-s); }
 @media (max-width: 720px) { .map-consent { width: 90px; height: 90px; } }
+
+/* ---------- Mobile header fix ---------- */
+@media (max-width: 1080px) {
+  .site-header .container { gap: 12px; flex-wrap: nowrap; }
+  .brand { min-width: 0; flex: 1 1 auto; }
+  .brand-name { white-space: nowrap; }
+  .header-actions { flex: 0 0 auto; gap: 10px; }
+  .header-actions .btn { white-space: nowrap; padding: 10px 16px; font-size: 14px; }
+}
+@media (max-width: 640px) {
+  .site-header { padding: 14px 0; }
+  .brand-mark { width: 44px; height: 44px; }
+  .brand-name { font-size: 17px; }
+  .brand-name span { font-size: 10px; }
+  /* header CTA hidden on phones: hero button + floating WhatsApp already cover it */
+  .header-actions .btn { display: none; }
+}
