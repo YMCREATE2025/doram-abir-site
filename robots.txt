@@ -26,4 +26,4 @@ Allow: /
 User-agent: CCBot
 Allow: /
 
-Sitemap: https://www.doramabir.com/sitemap.xml
+Sitemap: https://doramabir.com/sitemap.xml
